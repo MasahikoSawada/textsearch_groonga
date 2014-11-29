@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html
+	PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja" lang="ja">
+	<head>
+	<link rel="icon" type="image/png" href="http://pgfoundry.org/images/elephant-icon.png" />
+	<link rel="stylesheet" type="text/css" href="style.css" />
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<title>textsearch_groonga</title>
+</head>
+
+<body>
+<center>
+<h1>textsearch_groonga  version 0.1</h1>
+<div>～ N-gram方式 全文検索 / 列指向データベース連携 ～</div>
+</center>
+<div class="navigation"><a href="index-ja.html">Top</a> &gt; <a href="textsearch_groonga.html">textsearch_groonga</a><div>
+<hr />
+<p>
+<a href="http://groonga.org/">Groonga</a> エンジンを利用した汎用インデックスです。
+“textsearch”_groonga というモジュール名ですが、N-gram を使用した日本語全文検索の他、btree と同様のスカラー値の検索もサポートしています。
+ライセンスは <a href="http://www.postgresql.org/about/licence">PostgreSQL License</a> と同様の、BSD/MITライセンスです。
+</p>
+<ul>
+	<li><a href="http://pgfoundry.org/frs/?group_id=1000298">ダウンロード</a></li>
+	<li><a href="http://pgfoundry.org/tracker/?group_id=1000298">バグレポート</li></li>
+	<li><a href="http://pgfoundry.org/mail/?group_id=1000298">メーリングリスト</a> への参加</li>
+</ul>
+<hr />
+
+<ol>
+	<li><a href="#abstract">概要</a><ul>
+		<li><a href="#textsearch_senna">textsearch_senna との比較</a></li>
+  </ul></li>
+	<li><a href="#setup">セットアップ</a><ul>
+		<li><a href="#dependency">依存関係</a></li>
+		<li><a href="#install">インストール</a></li>
+		<li><a href="#uninstall">アンインストール</a></li>
+	</ul></li>
+	<li><a href="#search">検索機能</a><ul>
+		<li><a href="#index">インデックスの作成</a></li>
+		<li><a href="#scalars">比較演算子</a></li>
+		<li><a href="#percent">%% 演算子</a></li>
+		<li><a href="#atmark">@@ 演算子</a></li>
+		<li><a href="#score">スコアリング</a></li>
+	</ul></li>
+	<li><a href="#maintenance">メンテナンス</a><ul>
+		<li><a href="#backup">バックアップとリストア</a></li>
+		<li><a href="#files">不要ファイルの調査</a></li>
+		<li><a href="#statistics">統計情報は不要</a></li>
+	</ul></li>
+	<li><a href="#todo">TODO</a></li>
+</ol>
+
+<hr />
+
+<h2 id="abstract">概要</h2>
+<p>日本語テキストの全文検索を行います。
+形態素解析ベースである <a href="textsearch_ja.html">textsearch-ja</a> とは異なり、textsearch_groonga では N-gram ベースの全文検索を行います。
+検索には、全文検索エンジン / 列指向データベースである <a href="http://groonga.org/">Groonga</a> を使用しています。
+</p>
+
+<h3 id="textsearch_senna">textsearch_senna との比較</h3>
+<p>
+<a href="http://textsearch-ja.projects.postgresql.org/textsearch_senna.html">textsearch_senna</a> と比較して、以下の類似点や相違点があります。
+</p>
+<b>利点</b>
+<ul>
+<li>groonga の機能を活用できます。特に、スコアリングや複数列にまたがった検索条件を効率よく扱えます。</li>
+<li>text 型以外に、スカラー型 (数値, 日時) もサポートしています。</li>
+<li>複数列インデックス (マルチカラム・インデックス) をサポートしています。</li>
+<li>データを更新／削除した際にも、正しい結果を返却できます。
+(textsearch_senna では設計上の欠陥で間違った結果が返ることがありました。)</li>
+</ul>
+
+<b>欠点</b>
+<ul>
+<li>テキスト本文をデータベースと groonga の両方で持つため、ディスクをより多く消費します。
+(更新／削除を適切に行うために必要です。)</li>
+<li>LIKE 演算子をサポートしていません。(将来対応予定あり)</li>
+<li>インデックスを DROP した際に groonga ファイルを削除できません。(将来対応予定あり)</li>
+</ul>
+
+<b>類似点</b>
+<ul>
+<li>クラッシュ・リカバリやアーカイブ・リカバリに対応していません。
+リカバリ後にインデックスの再作成を行う必要があります。</li>
+<li>PostgreSQL 9.0 のレプリケーションでは複製できません。
+(Slony, pgpool ならば可)</li>
+</ul>
+
+<h2 id="setup">セットアップ</h2>
+<h3 id="dependency">依存関係</h3>
+<p>
+以下の外部プロジェクトに依存しています。
+</p>
+<ul>
+	<li><a href="http://www.postgresql.org/">PostgreSQL</a> : 8.3, 8.4, 9.0, 9.1dev</li>
+	<li><a href="http://github.com/groonga/groonga">Groonga</a> : できる限り最新のもの</li>
+</ul>
+
+<h3 id="install">インストール</h3>
+<p>
+最初に PostgreSQL をインストールします。
+ソースコード全体は必ずしも必要ではありませんが、開発用パッケージ (postgresql-devel 等) は必要です。
+また、PostgreSQL の実行ファイルを PATH に加えてください。
+pg_config コマンドにパスが通っている必要があります。
+</p>
+<p>
+次に groonga をインストールします。
+詳しくは groonga の<a href="http://groonga.org/docs/install.html">インストール方法</a>を参照してください。
+バイナリ・パッケージを yum 等を使ってインストールするか、ソースコードからビルドします。
+ビルドする場合には、環境によっては make に長時間 (数分～数10分) かかる場合があるようです。
+</p>
+<p>
+その後、textsearch_groonga をビルドします。
+pgxs フレームワークを利用しているため、前もって pg_config にパスを通してください。
+</p>
+<pre>$ cd textsearch_groonga
+$ make
+$ su
+$ make install</pre>
+
+<p>その後、データベースに関数を登録します。</p>
+<pre>$ pg_ctl start
+$ psql -f $PGSHARE/contrib/textsearch_groonga.sql -d <i>YOUR_DATABASE</i></pre>
+
+<h3 id="uninstall">アンインストール</h3>
+<p>
+アンインストールをするとすべてのインデックスも同時に削除されます。
+テーブルのデータは削除しないため、元のテキストは残っているはずですが、必要なデータが CASCADE で削除されないよう注意してください。
+</p>
+<pre>$ psql -f $PGSHARE/contrib/uninstall_textsearch_groonga.sql -d <i>YOUR_DATABASE</i></pre>
+
+<h2 id="search">検索機能</h2>
+<p>
+一般的な比較演算子に加え、全文検索用の %% 演算子と、groonga クエリを直接記述できる @@ 演算子をサポートしています。
+</p>
+<p>
+ただし、現在のバージョンでは textsearch_senna とは異なり、LIKE 演算子はサポートしていません。
+また、CREATE INDEX の際に WITH 句で指定できるインデックス・オプションはありません。
+</p>
+
+<h3 id="index">インデックスの作成</h3>
+<p>'groonga' というインデックス・アクセス・メソッドが登録されます。
+CREATE INDEX の際に USING groonga を指定することで使用できます。</p>
+<pre>=# CREATE TABLE test (id serial, t text);
+=# COPY test(t) FROM '...';
+=# CREATE INDEX idx ON test USING groonga (t);
+=# ANALYZE;
+=# EXPLAIN SELECT * FROM test WHERE t %% 'リレーショナルデータベース';
+                             QUERY PLAN
+--------------------------------------------------------------------
+ Index Scan using idx on test  (cost=0.00..55.01 rows=615 width=36)
+   Index Cond: (t %% 'リレーショナルデータベース'::text)
+(2 rows)</pre>
+
+<h3 id="scalars">比較演算子</h3>
+<p>
+スカラー値用の比較演算子 (&gt;,  &gt;=, =, &lt;=, &lt;, &lt;&gt;) はすべて利用できます。
+btree インデックスと同等の機能に加え、不等号 (&lt;&gt;) でも groonga インデックスを使用できます。
+</p>
+
+<h3 id="percent">%% 演算子</h3>
+<p>OPERATOR %% (document text, query text) が追加されます。
+以下の形式で使用します。</p>
+<pre>=# SELECT * FROM tbl WHERE
+   document %% '検索キーワード';</pre>
+
+<h3 id="atmark">@@ 演算子</h3>
+<p>@@ 演算子では、groonga が持つすべての検索機能を利用することができます。</p>
+<pre>=# SELECT * FROM tbl WHERE
+   document @@ groonga.query('postgresql OR postgres', 'title*2:document');</pre>
+<p>
+この演算子は、通常の PostgreSQL の絞り込み検索を逸脱した検索を行います。
+@@ の左辺の列名は、使用する groonga インデックスの列の任意のいずれか1つで構いません。
+実際に検索条件として使う列は、groonga.query() で与えます。
+</p>
+
+<p>
+groonga.query() は、gronnga 用の検索クエリを直接記述するための関数です。
+引数 query, match_columns, scorer, filter は、<a href="http://groonga.org/docs/commands/select.html">groonga の select コマンド</a>のそれぞれの引数に対応します。
+この形式を利用すると、groonga が検索条件全体を一括で利用でき、特に OR を含むような条件を効率的に扱えます。
+また、結果をスコアリングし、重みづけをすることができます。
+</p>
+
+<h3 id="score">スコアリング</h3>
+<p>
+groonga.score(tableoid, ctid) を使うと、その行の検索スコアを取得できます。
+何も指定しなければ groonga のデフォルトの重みづけになります。
+また groonga.query() を利用して独自に重みづけすることもできます。
+groonga.score() 関数は ORDER BY 句で指定することを想定しており、例えば「タイトル」にキーワードが含まれる場合を、「本文」の場合よりも上位に表示したい場合に役立ちます。
+</p>
+<p>使用例</p>
+<pre>=# SELECT * FROM document
+   WHERE body %% '<i>keyword</i>'
+   ORDER BY groonga.score(tableoid, ctid);</pre>
+<p>
+<b>不具合</b>
+現在のバージョンでは、行が更新されるとスコアとしてゼロが返る可能性があります。
+</p>
+
+<h2 id="maintenance">メンテナンス</h2>
+
+<h3 id="backup">バックアップとリストア</h3>
+<p>
+textsearch_groonga を登録したデータベースをバックアップする際には、以下に注意してください。
+</p>
+<dl>
+  <dt>論理バックアップ (pg_dump)</dt>
+  <dd>
+    サポートしていますが、<b>注意があります</b>。
+    バックアップ時には groonga スキーマを除外し、リストアの前に textsearch_groonga をインストールしてください。
+    pg_dump でスキーマを除外するには --exclude-schema=groonga オプションを指定します。
+    リストアの前のインストールの代わりに、template1 に先にインストールしておいても構いません。
+  </dd>
+  <dd>
+    上記が必要な理由は、textsearch_groonga が pg_catalog と groonga スキーマの両方を変更するためです。
+    pg_dump のデフォルトの動作では、pg_catalog はダンプせず、groonga スキーマはダンプするため、中途半端な状態のバックアップが取得されてしまいます。
+  </dd>
+  <dt>物理コールド・バックアップ</dt>
+  <dd>
+    サポートしています。
+    最も問題が少ないバックアップ方式ですが、groonga インデックスは比較的サイズが大きくなるため、ディスク容量やバックアップ時間に注意してください。
+  </dd>
+  <dt>物理ホット・バックアップ</dt>
+  <dd>
+    ホット･バックアップ中に一切更新を行わない場合を除き、<b>サポートしていません</b>。
+    groonga インデックスは、アーカイブ・リカバリに対応していません。
+    更新を止められるのであれば、コールド･バックアップと同様に利用できます。
+  </dd>
+</dl>
+
+<h3 id="files">不要ファイルの調査</h3>
+<p>
+現在 PostgreSQL のインデックスを削除しても、groonga のデータファイルは削除されません。
+不要なファイルを完全に削除するには、DROP DATABASE / CREATE DATABASE でデータベース全体を再作成してください。
+</p>
+
+<h3 id="statistics">統計情報は不要</h3>
+<p>
+groonga インデックスは <a>ANALYZE</a> で収集される統計情報を利用しません。
+そのため、統計情報ヒストグラムを作成しないように設定することで、ディスク容量やCPUコストを節約できます。
+groonga インデックスを張ったカラムのみ統計情報を収集しないように設定するには、<a href="http://www.postgresql.jp/document/current/html/sql-altertable.html">ALTER TABLE SET STATISTICS</a> を使います。
+</p>
+<pre>=# ALTER TABLE tbl ALTER COLUMN document SET STATISTICS 0;</pre>
+
+<h2 id="todo">TODO</h2>
+<dl>
+  <dt>ファイル削除をSQLと連動させる</dt>
+  <dd>PostgreSQL 母体の拡張が必要です。amdropindex?</dd>
+  <dd>少なくとも不要ファイルを後から削除できるようにすべきです。</dd>
+  <dt>レプリケーション対応</dt>
+  <dd>PostgreSQL 母体の拡張が必要です。rmgr_hook?</dd>
+  <dd>現状は lsyncd 等で別途複製してください。</dd>
+  <dt>シノニム, ストップワード対応</dt>
+	<dd>textsearch_ja と共用できるようにすべきです。</dd>
+</dl>
+
+<hr />
+<div class="navigation"><a href="index-ja.html">Top</a> &gt; <a href="textsearch_groonga.html">textsearch_groonga</a><div>
+<p class="footer"></p>
+
+<script type="text/javascript">
+var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+</script>
+<script type="text/javascript">
+try {
+var pageTracker = _gat._getTracker("UA-10244036-3");
+pageTracker._trackPageview();
+} catch(err) {}</script>
+</body>
+</html>
